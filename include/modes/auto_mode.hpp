@@ -27,9 +27,9 @@ private:
     static constexpr double MAX_LINEAR_SPEED = 0.2;        // Maximum forward speed
     static constexpr double MIN_LINEAR_SPEED = 0.1;        // Minimum forward speed
     static constexpr double MAX_ANGULAR_SPEED = 0.5;       // Maximum rotation speed
+    static constexpr double MIN_COMMAND_SPEED = 0.05;      // Minimum speed to overcome friction
     static constexpr double Kp_distance = 2.0;             // Distance control gain
     static constexpr double Kp_angle = 1.5;                // Angle control gain
-
     // State variables
     State state_{State::APPROACHING};
     sensor_msgs::msg::LaserScan::SharedPtr last_scan_;
@@ -40,6 +40,7 @@ private:
         double front_left;
         double left;
         double front_right;
+        double right;
     };
 
     // Helper methods for state management
@@ -55,11 +56,16 @@ private:
     
     // Basic helper functions
     void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
-    double get_range(const sensor_msgs::msg::LaserScan::SharedPtr& scan, float angle_deg);
     bool is_safe_distance(double distance) const { return distance > SAFETY_DISTANCE; }
     
     // ROS communication
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+
+    // Angular constants (in radians)
+    static constexpr double FRONT_ANGLE = 0.0;
+    static constexpr double LEFT_ANGLE = M_PI / 2.0;        // 90°
+    static constexpr double FRONT_LEFT_ANGLE = M_PI / 4.0;  // 45°
+    static constexpr double FRONT_RIGHT_ANGLE = -M_PI / 4.0; // -45°
 };
 
 #endif // AUTO_MODE_HPP 

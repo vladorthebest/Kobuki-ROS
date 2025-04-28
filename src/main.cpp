@@ -1,11 +1,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
 #include "modes/mode.hpp"
 #include "modes/stop_mode.hpp"
 #include "modes/manual_mode.hpp"
 #include "modes/auto_mode.hpp"
-#include <nav_msgs/msg/odometry.hpp>
-#include <sensor_msgs/msg/laser_scan.hpp>
 
 /**
  * @brief Main controller node for Kobuki robot
@@ -28,13 +28,7 @@ public:
         mode_sub_ = create_subscription<std_msgs::msg::String>(
             "/mode_select", 10,
             std::bind(&KobukiController::mode_callback, this, std::placeholders::_1));
-
-        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom", 10, std::bind(&KobukiControlNode::odom_callback, this, _1));
-
-        scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
-            "/scan", 10, std::bind(&KobukiControlNode::scan_callback, this, _1));
- 
+            
         // Create update timer
         update_timer_ = create_wall_timer(
             std::chrono::milliseconds(50),

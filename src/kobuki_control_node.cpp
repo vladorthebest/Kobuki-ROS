@@ -76,6 +76,7 @@ void KobukiControlNode::odom_callback(const nav_msgs::msg::Odometry::SharedPtr m
 // === ОБРАБОТКА ЛАЗЕРА ===
 void KobukiControlNode::scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
 {
+  RCLCPP_INFO(node_->get_logger(), "scan_callback called");
   last_scan_ = msg;
 }
 
