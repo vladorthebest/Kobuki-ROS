@@ -17,7 +17,8 @@ private:
     enum class State { 
         APPROACHING,  // Initial approach to wall
         ROTATING,     // Aligning with wall
-        FOLLOWING     // Following the wall
+        FOLLOWING,     // Following the wall
+        TURNING_CORNER // Turning around a corner
     };
 
     // Control parameters
@@ -41,19 +42,23 @@ private:
         double left;
         double front_right;
         double right;
+        double back_left;
+        double back_right;
+        double back;
     };
 
     // Helper methods for state management
     void handle_approaching_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd);
     void handle_rotating_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd);
     void handle_following_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd);
-    
+    void handle_turning_corner_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd);
+
     // Helper methods for calculations
     LaserReadings get_laser_readings() const;
     bool check_safety(const LaserReadings& readings) const;
     double calculate_wall_angle(double front_left, double left) const;
     bool is_wall_aligned(double front, double left) const;
-    
+    double bufDistance = 0.0; // Buffer distance for wall-following
     // Basic helper functions
     void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg);
     bool is_safe_distance(double distance) const { return distance > SAFETY_DISTANCE; }

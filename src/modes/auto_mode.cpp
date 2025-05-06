@@ -42,33 +42,31 @@ AutoMode::LaserReadings AutoMode::get_laser_readings() const {
         return readings;
     }
 
-    size_t n = last_scan_->ranges.size();
-
     // Index calculations
-    size_t idx_front       = n / 2;
-    size_t idx_left        = 3 * n / 4;
-    size_t idx_right       = n / 4;
-    size_t idx_front_left  = (idx_front + idx_left) / 2;
-    size_t idx_front_right = (idx_front + idx_right) / 2;
-
+    int idx_front       = std::round((0.0 - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_left        = std::floor((M_PI/2.0 - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_right       = std::floor(((2.0 * M_PI - M_PI / 2.0) - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_front_left  = std::floor((M_PI/4.0 - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_front_right = std::floor(((2.0 * M_PI - M_PI / 4.0) - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_back_left   = std::floor((M_PI/4.0 + M_PI - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_back_right  = std::floor(((2.0 * M_PI + M_PI - M_PI / 4.0) - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_back       = std::floor((M_PI - last_scan_->angle_min) / last_scan_->angle_increment);
+    
     // Assign readings
-    readings.front       = last_scan_->ranges[idx_front];
     readings.left        = last_scan_->ranges[idx_left];
     readings.right       = last_scan_->ranges[idx_right];
     readings.front_left  = last_scan_->ranges[idx_front_left];
     readings.front_right = last_scan_->ranges[idx_front_right];
+    readings.back_left  = last_scan_->ranges[idx_back_left];
+    readings.back_right = last_scan_->ranges[idx_back_right];
+    readings.front       = last_scan_->ranges[idx_front];
+    readings.back        = last_scan_->ranges[idx_back];
 
     RCLCPP_INFO(node_->get_logger(), 
         "Laser readings (m) - Front: %.2f, Front-Left: %.2f, Left: %.2f, Front-Right: %.2f, Right: %.2f",
         readings.front, readings.front_left, readings.left, readings.front_right, readings.right);
 
     return readings;
-}
-
-bool AutoMode::check_safety(const LaserReadings& readings) const {
-    return is_safe_distance(readings.front) && 
-           is_safe_distance(readings.left) && 
-           is_safe_distance(readings.front_left);
 }
 
 double AutoMode::calculate_wall_angle(double front_left, double left) const {
@@ -91,9 +89,9 @@ void AutoMode::handle_approaching_state(const LaserReadings& readings, geometry_
 }
 
 void AutoMode::handle_rotating_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
+    float target = readings.right * std::sqrt(2.0f) - 0.05f;
     RCLCPP_INFO(node_->get_logger(), "ROTATING MODE is running");
-    cmd.angular.z = MAX_ANGULAR_SPEED;
-    if (is_wall_aligned(readings.front, readings.left)) {
+    if (std::fabs(readings.front_right - target) < 0.02f && readings.front >= WALL_DETECT_DISTANCE) {
         state_ = State::FOLLOWING;
         RCLCPP_INFO(node_->get_logger(), "Transitioning to FOLLOWING state");
     } else {
@@ -103,44 +101,51 @@ void AutoMode::handle_rotating_state(const LaserReadings& readings, geometry_msg
 }
 
 void AutoMode::handle_following_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
-    double wall_angle = calculate_wall_angle(readings.front_left, readings.left);
-    double distance_error = readings.left - TARGET_WALL_DISTANCE;
-
-    bool approaching_corner = readings.front < WALL_DETECT_DISTANCE || 
-                            readings.front_left < TARGET_WALL_DISTANCE;
-
-    // Always maintain minimum forward velocity
-    double linear_speed = approaching_corner ? MAX_LINEAR_SPEED * 0.5 : MAX_LINEAR_SPEED;
-    linear_speed = std::max(MIN_COMMAND_SPEED, linear_speed);  // Ensure minimum speed
-
-    double angular_velocity = Kp_distance * distance_error + Kp_angle * wall_angle;
-    
-    // If angular correction is very small, add a minimum rotation to prevent stalling
-    if (std::abs(angular_velocity) < 0.01 && std::abs(distance_error) > 0.01) {
-        angular_velocity = (distance_error > 0) ? 0.05 : -0.05;
+    if (readings.front <= WALL_DETECT_DISTANCE) {
+        state_ = State::ROTATING;
+        RCLCPP_INFO(node_->get_logger(), "Transitioning to ROTATING state");
+        return;
     }
 
-    cmd.linear.x = std::clamp(linear_speed, MIN_LINEAR_SPEED, MAX_LINEAR_SPEED);
-    cmd.angular.z = std::clamp(angular_velocity, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
-
-    RCLCPP_INFO(node_->get_logger(), 
-                "Following - Distance error: %.2f, Wall angle: %.2f, Speed: %.2f, Angular: %.2f", 
-                distance_error, wall_angle, cmd.linear.x, cmd.angular.z);
+    if (readings.right > WALL_DETECT_DISTANCE) {
+        bufDistance = readings.back;
+        state_ = State::TURNING_CORNER;
+        RCLCPP_INFO(node_->get_logger(), "Transitioning to TURNING_CORNER state");
+        return;
+    }
+    cmd.linear.x = MAX_LINEAR_SPEED;
+    cmd.angular.z = 0.0;
 }
+
+void AutoMode::handle_turning_corner_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
+    if (bufDistance != 0 && bufDistance - readings.back <= WALL_DETECT_DISTANCE) {
+        cmd.linear.x = MAX_LINEAR_SPEED;
+        cmd.angular.z = 0.0;
+        return;
+    }
+
+    double back_right_normal = readings.back_right * std::sqrt(2.0) / 2.0;
+    if(back_right_normal > WALL_DETECT_DISTANCE) {
+        cmd.linear.x = 0.0;
+        cmd.angular.z = MAX_ANGULAR_SPEED;
+        return;
+    }
+    
+    if (readings.right > WALL_DETECT_DISTANCE) {
+        cmd.linear.x = MAX_LINEAR_SPEED;
+        cmd.angular.z = 0.0;
+        return;
+    }
+
+    state_ = State::FOLLOWING;
+}
+
 
 void AutoMode::update() {
     if (!last_scan_) return;
 
     geometry_msgs::msg::Twist cmd;
     LaserReadings readings = get_laser_readings();
-
-    if (!check_safety(readings)) {
-        cmd.linear.x = 0.0;
-        cmd.angular.z = MAX_ANGULAR_SPEED;
-        cmd_vel_pub_->publish(cmd);
-        RCLCPP_WARN(node_->get_logger(), "Emergency maneuver activated!");
-        return;
-    }
 
     RCLCPP_INFO(node_->get_logger(), "AUTO_MODE is running");
 
@@ -154,7 +159,13 @@ void AutoMode::update() {
         case State::FOLLOWING:
             handle_following_state(readings, cmd);
             break;
+        case State::TURNING_CORNER:
+            handle_turning_corner_state(readings, cmd);
+            break;
+        default:
+            RCLCPP_ERROR(node_->get_logger(), "Unknown state!");
+            break;
     }
 
     cmd_vel_pub_->publish(cmd);
-} 
+}
