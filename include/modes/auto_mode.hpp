@@ -22,10 +22,11 @@ private:
     };
 
     // Control parameters
-    static constexpr double WALL_DETECT_DISTANCE = 0.5;    // Distance to detect wall
+    static constexpr double WALL_DETECT_DISTANCE = 0.4;    // Distance to detect wall
+    static constexpr double ALIGNMENT_TOLERANCE = 0.05;
     static constexpr double TARGET_WALL_DISTANCE = 0.3;    // Desired distance from wall
     static constexpr double SAFETY_DISTANCE = 0.2;         // Minimum safe distance
-    static constexpr double MAX_LINEAR_SPEED = 0.2;        // Maximum forward speed
+    static constexpr double MAX_LINEAR_SPEED = 0.1;        // Maximum forward speed
     static constexpr double MIN_LINEAR_SPEED = 0.1;        // Minimum forward speed
     static constexpr double MAX_ANGULAR_SPEED = 0.5;       // Maximum rotation speed
     static constexpr double MIN_COMMAND_SPEED = 0.05;      // Minimum speed to overcome friction

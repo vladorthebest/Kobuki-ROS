@@ -43,7 +43,7 @@ AutoMode::LaserReadings AutoMode::get_laser_readings() const {
     }
 
     // Index calculations
-    int idx_front       = std::round((0.0 - last_scan_->angle_min) / last_scan_->angle_increment);
+    int idx_front       = 0.0;
     int idx_left        = std::floor((M_PI/2.0 - last_scan_->angle_min) / last_scan_->angle_increment);
     int idx_right       = std::floor(((2.0 * M_PI - M_PI / 2.0) - last_scan_->angle_min) / last_scan_->angle_increment);
     int idx_front_left  = std::floor((M_PI/4.0 - last_scan_->angle_min) / last_scan_->angle_increment);
@@ -63,22 +63,16 @@ AutoMode::LaserReadings AutoMode::get_laser_readings() const {
     readings.back        = last_scan_->ranges[idx_back];
 
     RCLCPP_INFO(node_->get_logger(), 
-        "Laser readings (m) - Front: %.2f, Front-Left: %.2f, Left: %.2f, Front-Right: %.2f, Right: %.2f",
-        readings.front, readings.front_left, readings.left, readings.front_right, readings.right);
+        "Laser readings (m) - Front: %.2f, Left: %.2f, Right: %.2f, Back: %.2f",
+        readings.front, readings.left, readings.right, readings.back);
 
     return readings;
 }
 
-double AutoMode::calculate_wall_angle(double front_left, double left) const {
-    return std::atan2(front_left - left, last_scan_->angle_increment * 45);
-}
-
-bool AutoMode::is_wall_aligned(double front, double left) const {
-    return left < WALL_DETECT_DISTANCE && std::abs(front - left) < 0.1;
-}
-
 // === UPDATE LOGIC ===
 void AutoMode::handle_approaching_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
+    RCLCPP_INFO(node_->get_logger(), "APPROACHING MODE is running");
+    
     if (readings.front <= WALL_DETECT_DISTANCE) {
         state_ = State::ROTATING;
         RCLCPP_INFO(node_->get_logger(), "Transitioning to ROTATING state");
@@ -89,54 +83,72 @@ void AutoMode::handle_approaching_state(const LaserReadings& readings, geometry_
 }
 
 void AutoMode::handle_rotating_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
-    float target = readings.right * std::sqrt(2.0f) - 0.05f;
     RCLCPP_INFO(node_->get_logger(), "ROTATING MODE is running");
-    if (std::fabs(readings.front_right - target) < 0.02f && readings.front >= WALL_DETECT_DISTANCE) {
+
+    double front_right_normal = readings.front_right * std::sqrt(2.0) / 2.0;
+    double error = std::abs(front_right_normal - readings.right);
+
+    if (error < ALIGNMENT_TOLERANCE && readings.front >= WALL_DETECT_DISTANCE) {
         state_ = State::FOLLOWING;
-        RCLCPP_INFO(node_->get_logger(), "Transitioning to FOLLOWING state");
-    } else {
-        cmd.linear.x = 0.0;
-        cmd.angular.z = MAX_ANGULAR_SPEED;
+        RCLCPP_INFO(node_->get_logger(), 
+            "Transitioning to FOLLOWING state (error: %.3f < tolerance)", error);
+        return;
     }
+
+    cmd.linear.x = 0.0;
+    cmd.angular.z = MAX_ANGULAR_SPEED;
 }
 
 void AutoMode::handle_following_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
+    RCLCPP_INFO(node_->get_logger(), "FOLLOWING MODE is running");
     if (readings.front <= WALL_DETECT_DISTANCE) {
         state_ = State::ROTATING;
         RCLCPP_INFO(node_->get_logger(), "Transitioning to ROTATING state");
         return;
     }
 
-    if (readings.right > WALL_DETECT_DISTANCE) {
+    // if (readings.right < 1.1 * WALL_DETECT_DISTANCE) {
+    //     state_ = State::ROTATING;
+    //     RCLCPP_INFO(node_->get_logger(), "Transitioning to TURNING_CORNER state");
+    //     return;
+    // }
+
+    if (readings.right > WALL_DETECT_DISTANCE + 0.1 * WALL_DETECT_DISTANCE) {
         bufDistance = readings.back;
         state_ = State::TURNING_CORNER;
         RCLCPP_INFO(node_->get_logger(), "Transitioning to TURNING_CORNER state");
         return;
     }
+    
     cmd.linear.x = MAX_LINEAR_SPEED;
     cmd.angular.z = 0.0;
 }
 
 void AutoMode::handle_turning_corner_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
-    if (bufDistance != 0 && bufDistance - readings.back <= WALL_DETECT_DISTANCE) {
+    RCLCPP_INFO(node_->get_logger(), "TURNING_CORNER MODE is running");
+    RCLCPP_INFO(node_->get_logger(), "bufDistance: %.2f, %.2f", bufDistance, readings.back - bufDistance);
+    if (bufDistance != 0 && std::abs(readings.back - bufDistance) < WALL_DETECT_DISTANCE - 0.1) {
         cmd.linear.x = MAX_LINEAR_SPEED;
         cmd.angular.z = 0.0;
         return;
     }
-
-    double back_right_normal = readings.back_right * std::sqrt(2.0) / 2.0;
-    if(back_right_normal > WALL_DETECT_DISTANCE) {
+    bufDistance = 0.0;
+    double front_right_normal = readings.front_right * std::sqrt(2.0) / 2.0;
+    RCLCPP_INFO(node_->get_logger(), "front_right_normal distance: %.2f", front_right_normal );
+    if (front_right_normal  > WALL_DETECT_DISTANCE) {
         cmd.linear.x = 0.0;
-        cmd.angular.z = MAX_ANGULAR_SPEED;
+        cmd.angular.z =  -1 * MAX_ANGULAR_SPEED;
         return;
     }
-    
+
     if (readings.right > WALL_DETECT_DISTANCE) {
         cmd.linear.x = MAX_LINEAR_SPEED;
         cmd.angular.z = 0.0;
         return;
     }
 
+    cmd.linear.x = 0.0;
+    cmd.angular.z = 0.0;
     state_ = State::FOLLOWING;
 }
 
