@@ -85,8 +85,8 @@ void AutoMode::handle_approaching_state(const LaserReadings& readings, geometry_
 void AutoMode::handle_rotating_state(const LaserReadings& readings, geometry_msgs::msg::Twist& cmd) {
     RCLCPP_INFO(node_->get_logger(), "ROTATING MODE is running");
 
-    double front_right_normal = readings.front_right * std::sqrt(2.0) / 2.0;
-    double error = std::abs(front_right_normal - readings.right);
+    double back_right_normal = readings.back_right * std::sqrt(2.0) / 2.0;
+    double error = std::abs(back_right_normal - readings.right);
 
     if (error < ALIGNMENT_TOLERANCE && readings.front >= WALL_DETECT_DISTANCE) {
         state_ = State::FOLLOWING;
